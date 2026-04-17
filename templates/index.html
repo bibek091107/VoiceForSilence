@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>ISL Portal | AI Bridge</title>
+    
+    <!-- Scripts & Styles -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700" rel="stylesheet"/>
+    
+    <!-- MediaPipe scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    
+    <!-- PDF Generation Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary": { DEFAULT: "#003366", foreground: "#FFFFFF" },
+                        "secondary": { DEFAULT: "#4A5568", foreground: "#FFFFFF" },
+                        "surface": { DEFAULT: "#F8F9FA", container: "#FFFFFF", variant: "#F1F5F9" },
+                        "on-surface": { DEFAULT: "#1A202C", variant: "#64748B" },
+                        "outline": "#CBD5E1",
+                        "outline-variant": "#E2E8F0"
+                    },
+                    "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.5rem", "xl": "1rem", "full": "9999px" },
+                    "fontFamily": { "headline": ["Public Sans"], "body": ["Public Sans"] }
+                },
+            },
+        }
+    </script>
+    <style>
+        body { font-family: 'Public Sans', sans-serif; transition: background-color 0.3s ease; }
+        .glass-panel { backdrop-filter: blur(16px); background: rgba(255, 255, 255, 0.9); border: 1px solid rgba(0, 51, 102, 0.1); }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        
+        .light body { background-color: #F8F9FA; color: #1A202C; }
+        .dark body { background-color: #131313; color: #E5E2E1; }
+        
+        .light .theme-dark-icon { display: block; }
+        .light .theme-light-icon { display: none; }
+        .dark .theme-dark-icon { display: none; }
+        .dark .theme-light-icon { display: block; }
+
+        .nav-active { color: #003366 !important; border-bottom: 2px solid #003366; font-weight: 700 !important; }
+        .dark .nav-active { color: #ADC7FF !important; border-bottom: 2px solid #ADC7FF; }
+    </style>
+</head>
+<body class="selection:bg-primary/30 min-h-screen flex flex-col">
+
+    <!-- TopNavBar -->
+    <nav class="fixed top-0 w-full z-50 bg-white/90 dark:bg-[#1C1B1B]/90 backdrop-blur-xl border-b border-outline-variant">
+        <div class="max-w-[1200px] mx-auto flex justify-between items-center px-8 h-20">
+            <div class="flex items-center gap-12">
+                <span class="text-xl font-bold tracking-tighter text-primary dark:text-white uppercase">ISL Portal</span>
+                <div class="hidden md:flex items-center gap-8">
+                    <a id="tabDashboard" class="cursor-pointer font-public-sans text-xs uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors font-semibold" onclick="showView('translate')">Dashboard</a>
+                    <a id="tabTranslate" class="nav-active cursor-pointer font-public-sans text-xs uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors font-semibold" onclick="showView('translate')">Translate</a>
+                    <a id="tabHistory" class="cursor-pointer font-public-sans text-xs uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors font-semibold" onclick="showView('history')">History</a>
+                </div>
+            </div>
+            <div class="flex items-center gap-6">
+                <!-- Search Session (Visible in History) -->
+                <div id="historySearchBar" class="relative hidden">
+                    <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+                    <input class="bg-surface-variant dark:bg-[#2A2A2A] border border-outline-variant rounded pl-10 pr-4 py-2 text-xs uppercase tracking-widest focus:ring-1 focus:ring-primary w-64 text-on-surface placeholder:text-on-surface-variant/60" placeholder="Search sessions..." type="text"/>
+                </div>
+                <button class="p-2 hover:bg-surface-variant dark:hover:bg-white/10 rounded-full transition-all active:scale-95 text-on-surface-variant">
+                    <span class="material-symbols-outlined">settings</span>
+                </button>
+                <button class="p-2 hover:bg-surface-variant dark:hover:bg-white/10 rounded-full transition-all active:scale-95 flex items-center justify-center text-on-surface-variant" onclick="toggleTheme()">
+                    <span class="material-symbols-outlined theme-dark-icon">dark_mode</span>
+                    <span class="material-symbols-outlined theme-light-icon">light_mode</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main id="mainContent" class="flex-grow pt-32 pb-24 px-8 max-w-[1200px] mx-auto w-full">
+        
+        <!-- TRANSLATE VIEW -->
+        <div id="translateView">
+            <section class="relative aspect-video w-full rounded-xl overflow-hidden bg-black shadow-2xl border border-outline-variant/15 dark:border-white/5 group">
+                <video id="inputVideo" class="w-full h-full object-cover scale-x-[-1]"></video>
+                <canvas id="outputCanvas" class="absolute inset-0 w-full h-full scale-x-[-1]"></canvas>
+
+                <!-- Overlay Interface -->
+                <div class="absolute inset-0 flex flex-col justify-between p-6 pointer-events-none">
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-center gap-3 bg-white/80 dark:bg-black/60 px-4 py-2 rounded-full glass-panel pointer-events-auto border border-outline-variant/10 dark:border-white/10">
+                            <span class="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse"></span>
+                            <span class="text-xs font-bold tracking-wider text-on-surface dark:text-white uppercase">Live Translation</span>
+                        </div>
+                        <div class="flex gap-4">
+                            <div class="flex flex-col items-end bg-white/80 dark:bg-black/60 px-4 py-2 rounded-xl glass-panel pointer-events-auto border border-outline-variant/10 dark:border-white/10">
+                                <span class="text-[10px] text-on-surface-variant dark:text-white/60 uppercase font-bold tracking-widest">Latency</span>
+                                <span class="text-sm font-mono text-primary dark:text-[#ADC7FF]" id="valLatency">0ms</span>
+                            </div>
+                            <div class="flex flex-col items-end bg-white/80 dark:bg-black/60 px-4 py-2 rounded-xl glass-panel pointer-events-auto border border-outline-variant/10 dark:border-white/10">
+                                <span class="text-[10px] text-on-surface-variant dark:text-white/60 uppercase font-bold tracking-widest">Accuracy</span>
+                                <span class="text-sm font-mono text-primary dark:text-[#ADC7FF]" id="valAccuracy">0%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex-grow flex items-center justify-center">
+                        <div id="captureFrame" class="w-64 h-64 border-2 border-dashed border-white/30 rounded-3xl relative">
+                            <div class="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-white rounded-tl-lg"></div>
+                            <div class="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-white rounded-tr-lg"></div>
+                            <div class="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-white rounded-bl-lg"></div>
+                            <div class="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-white rounded-br-lg"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-center gap-4 pointer-events-auto">
+                        <div class="bg-white/20 dark:bg-black/40 px-6 py-3 rounded-full glass-panel flex items-center gap-8 border border-white/10">
+                            <button id="camToggle" class="text-white hover:text-blue-200 transition-colors">
+                                <span class="material-symbols-outlined">videocam</span>
+                            </button>
+                            <button class="text-white hover:text-blue-200 transition-colors">
+                                <span class="material-symbols-outlined">mic_off</span>
+                            </button>
+                            <button id="stopInferenceBtn" class="text-white hover:text-blue-200 transition-colors">
+                                <span class="material-symbols-outlined">flip_camera_ios</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="mt-8 grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+                <div class="md:col-span-8 bg-white dark:bg-[#201F1F] rounded-xl p-8 border border-outline-variant/30 dark:border-white/5 shadow-sm">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xs font-bold text-on-surface-variant dark:text-[#C4C6CE] uppercase tracking-[0.2em]">Translated Text</h2>
+                        <div class="flex gap-2">
+                            <button class="p-2 rounded-lg hover:bg-surface-variant dark:hover:bg-white/5 text-on-surface-variant dark:text-[#C4C6CE] transition-colors active:scale-90" id="speakIcon">
+                                <span class="material-symbols-outlined">volume_up</span>
+                            </button>
+                            <button class="p-2 rounded-lg hover:bg-surface-variant dark:hover:bg-white/5 text-on-surface-variant dark:text-[#C4C6CE] transition-colors active:scale-90" id="copyBtn">
+                                <span class="material-symbols-outlined">content_copy</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="min-h-[160px] flex flex-col justify-center">
+                        <p id="predictionText" class="text-2xl md:text-3xl font-light text-on-surface dark:text-[#E5E2E1] leading-relaxed tracking-tight mb-4">
+                            Waiting for sign...
+                        </p>
+                        <hr class="border-outline-variant/30 dark:border-white/5 mb-4">
+                        <h3 class="text-[10px] font-bold text-on-surface-variant dark:text-[#C4C6CE] uppercase tracking-[0.2em] mb-2">Live Transcript</h3>
+                        <p id="sentenceText" class="text-lg font-normal text-on-surface/80 dark:text-[#E5E2E1]/80 leading-relaxed italic">
+                            The transcript will appear here as you sign...
+                        </p>
+                    </div>
+                    <div class="mt-8 pt-6 border-t border-outline-variant/10 dark:border-white/5 flex items-center gap-4">
+                        <span class="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-primary dark:text-[#ADC7FF] px-3 py-1 rounded-full uppercase font-bold tracking-widest border border-blue-100 dark:border-blue-800/30">Context: Live Analysis</span>
+                        <span class="text-[10px] text-on-surface-variant/70 dark:text-[#C4C6CE]/70 italic">Refining based on hand trajectory...</span>
+                    </div>
+                </div>
+
+                <div class="md:col-span-4 flex flex-col gap-4">
+                    <button id="speakBtn" class="w-full h-16 bg-primary dark:bg-gradient-to-br dark:from-[#ADC7FF] dark:to-[#177EFF] text-white dark:text-[#001A41] font-bold rounded-xl flex items-center justify-center gap-3 shadow-lg hover:shadow-primary/20 transition-all active:scale-[0.98]">
+                        <span class="material-symbols-outlined">volume_up</span>
+                        <span class="tracking-wide uppercase">Speak Live Translation</span>
+                    </button>
+                    <div class="flex items-center gap-2 px-2 mb-2">
+                        <input type="checkbox" id="autoSpeak" class="rounded border-outline-variant text-primary focus:ring-primary h-4 w-4">
+                        <label for="autoSpeak" class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant dark:text-[#C4C6CE] cursor-pointer">Auto-Speak Words</label>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <button id="saveBtn" class="h-16 bg-white dark:bg-[#2A2A2A] border border-outline-variant/30 dark:border-white/5 hover:bg-surface-variant rounded-xl flex flex-col items-center justify-center gap-1 transition-all group active:scale-95">
+                            <span class="material-symbols-outlined text-on-surface-variant dark:text-[#C4C6CE] group-hover:text-primary transition-colors">save_as</span>
+                            <span class="text-[10px] font-bold uppercase tracking-tighter">Save Session</span>
+                        </button>
+                        <button id="clearBtn" class="h-16 bg-white dark:bg-[#2A2A2A] border border-outline-variant/30 dark:border-white/5 hover:bg-surface-variant rounded-xl flex flex-col items-center justify-center gap-1 transition-all group active:scale-95">
+                            <span class="material-symbols-outlined text-on-surface-variant dark:text-[#C4C6CE] group-hover:text-primary transition-colors">delete</span>
+                            <span class="text-[10px] font-bold uppercase tracking-tighter">Clear All</span>
+                        </button>
+                    </div>
+                    <button class="w-full h-12 bg-white dark:bg-[#2A2A2A] border border-outline-variant/30 dark:border-white/5 hover:bg-surface-variant rounded-xl flex items-center justify-center gap-2 transition-all group active:scale-95" onclick="showView('history')">
+                        <span class="material-symbols-outlined text-on-surface-variant dark:text-[#C4C6CE] group-hover:text-primary transition-colors">history</span>
+                        <span class="text-[10px] font-bold uppercase tracking-tighter">View Communication History</span>
+                    </button>
+                    <div class="mt-4 p-5 bg-white dark:bg-[#0E0E0E] rounded-xl border border-outline-variant/30 dark:border-white/5">
+                        <div class="flex items-center gap-3 mb-4">
+                            <span class="material-symbols-outlined text-on-surface-variant dark:text-[#C4C6CE] text-sm">analytics</span>
+                            <span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant dark:text-[#C4C6CE]">Model Health</span>
+                        </div>
+                        <div class="space-y-3">
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs text-on-surface-variant/80 dark:text-[#C4C6CE]/80">Engine Load</span>
+                                <div class="w-24 h-1 bg-surface-variant dark:bg-[#353534] rounded-full overflow-hidden">
+                                    <div class="bg-primary dark:bg-[#ADC7FF] h-full w-[40%]"></div>
+                                </div>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs text-on-surface-variant/80 dark:text-[#C4C6CE]/80">Status</span>
+                                <span class="text-[10px] text-primary dark:text-[#ADC7FF] font-bold">STABLE</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- HISTORY VIEW -->
+        <div id="historyView" class="hidden">
+            <section class="mb-16">
+                <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                    <div>
+                        <h1 class="text-4xl font-extrabold tracking-tighter text-on-surface dark:text-white mb-3 uppercase">Communication History</h1>
+                        <p class="text-on-surface-variant dark:text-[#C4C6CE] flex items-center gap-2 text-sm uppercase tracking-widest font-medium">
+                            <span class="material-symbols-outlined text-primary dark:text-[#ADC7FF] text-lg">verified_user</span>
+                            Secure Institutional Audit Trail — 1,284 Total Sessions
+                        </p>
+                    </div>
+                    <div class="flex gap-4">
+                        <button class="flex items-center gap-2 bg-white dark:bg-[#2A2A2A] border border-outline dark:border-white/10 px-6 py-3 rounded text-xs font-bold uppercase tracking-widest hover:bg-surface-variant transition-colors dark:text-white">
+                            <span class="material-symbols-outlined text-sm">filter_list</span>
+                            Filter Records
+                        </button>
+                        <button id="exportPdfBtn" class="flex items-center gap-2 bg-primary dark:bg-[#ADC7FF] px-6 py-3 rounded text-xs font-bold text-white dark:text-[#001D3D] uppercase tracking-widest hover:opacity-90 transition-opacity">
+                            <span class="material-symbols-outlined text-sm">download</span>
+                            Export Full Log (PDF)
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <h3 class="text-xs font-bold text-on-surface-variant dark:text-[#C4C6CE] mb-6 px-2 uppercase tracking-[0.2em]">Recent Institutional Encounters</h3>
+            
+            <div id="historyContainer" class="space-y-4">
+                <!-- Dynamic Content Loading... -->
+            </div>
+            
+            <div class="pt-12 flex justify-center">
+                <button class="text-[10px] text-primary dark:text-[#ADC7FF] hover:bg-primary/5 px-8 py-3 rounded border border-primary/20 flex items-center gap-3 transition-colors uppercase tracking-[0.25em] font-bold">
+                    Load Archive Records
+                    <span class="material-symbols-outlined text-sm">keyboard_double_arrow_down</span>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <footer class="w-full py-12 mt-auto bg-white dark:bg-[#1C1B1B] border-t border-outline-variant/20 dark:border-white/10 overflow-hidden">
+        <div class="max-w-[1200px] mx-auto px-8 flex flex-col md:flex-row justify-between items-center text-[10px] uppercase tracking-[0.15em] text-on-surface-variant/70">
+            <p>© 2024 ISL Portal | Institutional Security Verified</p>
+            <div class="flex gap-10">
+                <a href="#" class="hover:text-primary">Privacy Policy</a>
+                <a href="#" class="hover:text-primary transition-colors">Security Architecture</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // UI Navigation & Theming
+        let currentTheme = 'light';
+        function toggleTheme() {
+            currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+            document.documentElement.className = currentTheme;
+        }
+
+        function showView(view) {
+            const translateView = document.getElementById('translateView');
+            const historyView = document.getElementById('historyView');
+            const hSearch = document.getElementById('historySearchBar');
+            const tDashboard = document.getElementById('tabDashboard');
+            const tTranslate = document.getElementById('tabTranslate');
+            const tHistory = document.getElementById('tabHistory');
+
+            [tDashboard, tTranslate, tHistory].forEach(t => t.classList.remove('nav-active'));
+
+            if (view === 'history') {
+                translateView.classList.add('hidden');
+                historyView.classList.remove('hidden');
+                hSearch.classList.remove('hidden');
+                tHistory.classList.add('nav-active');
+            } else {
+                translateView.classList.remove('hidden');
+                historyView.classList.add('hidden');
+                hSearch.classList.add('hidden');
+                tTranslate.classList.add('nav-active');
+            }
+        }
+
+        // AI & Camera Integration
+        const videoElement = document.getElementById('inputVideo');
+        const canvasElement = document.getElementById('outputCanvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const predictionText = document.getElementById('predictionText');
+        const sentenceText = document.getElementById('sentenceText');
+        const valAccuracy = document.getElementById('valAccuracy');
+        const valLatency = document.getElementById('valLatency');
+        const speakBtn = document.getElementById('speakBtn');
+        const autoSpeak = document.getElementById('autoSpeak');
+        const clearBtn = document.getElementById('clearBtn');
+        const camToggle = document.getElementById('camToggle');
+        const stopBtn = document.getElementById('stopInferenceBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const exportPdfBtn = document.getElementById('exportPdfBtn');
+        const historyContainer = document.getElementById('historyContainer');
+
+        let sentence = [];
+
+        let isTranslating = true;
+        let landmarkBuffer = [];
+        const MAX_BUFFER_SIZE = 169;
+        let lastInferenceTime = Date.now();
+        let framesWithoutHands = 0;
+
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Draw skeleton with refined aesthetics
+            if (results.poseLandmarks) {
+                drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: 'rgba(255,255,255,0.15)', lineWidth: 1});
+            }
+            if (results.leftHandLandmarks) {
+                drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, {color: '#ADC7FF', lineWidth: 2});
+                drawLandmarks(canvasCtx, results.leftHandLandmarks, {color: '#FFFFFF', radius: 1.5});
+            }
+            if (results.rightHandLandmarks) {
+                drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS, {color: '#ADC7FF', lineWidth: 2});
+                drawLandmarks(canvasCtx, results.rightHandLandmarks, {color: '#FFFFFF', radius: 1.5});
+            }
+            canvasCtx.restore();
+
+            if (isTranslating) {
+                const hasHand = results.leftHandLandmarks || results.rightHandLandmarks;
+
+                const frameData = {
+                    pose: (results.poseLandmarks || []).slice(0, 25).map(l => ({x: l.x, y: l.y})),
+                    hand1: (results.rightHandLandmarks || []).map(l => ({x: l.x, y: l.y})),
+                    hand2: (results.leftHandLandmarks || []).map(l => ({x: l.x, y: l.y}))
+                };
+
+                if (hasHand) {
+                    framesWithoutHands = 0;
+                    landmarkBuffer.push(frameData);
+                } else {
+                    framesWithoutHands++;
+                    if (framesWithoutHands < 15) {
+                        landmarkBuffer.push(frameData);
+                    }
+                }
+
+                if (landmarkBuffer.length > MAX_BUFFER_SIZE) landmarkBuffer.shift();
+
+                // Adaptive inference timing
+                if (framesWithoutHands === 15 && landmarkBuffer.length > 25) {
+                    // Optimized Trim (last 5 frames)
+                    const gestureBuffer = landmarkBuffer.slice(0, -5);
+                    if (gestureBuffer.length > 10) {
+                        performInference(gestureBuffer);
+                    }
+                    lastInferenceTime = Date.now();
+                    landmarkBuffer = []; // CLEAR BUFFER completely to prevent noise leakage
+                } else if (hasHand && Date.now() - lastInferenceTime > 2000 && landmarkBuffer.length > 60) {
+                    // Continuous safety: translate and clear if signing for too long
+                    performInference(landmarkBuffer);
+                    lastInferenceTime = Date.now();
+                    landmarkBuffer = [];
+                }
+            }
+        }
+
+        const holistic = new Holistic({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`});
+        holistic.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        holistic.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await holistic.send({image: videoElement}); },
+            width: 1280, height: 720
+        });
+
+        camera.start().then(() => {
+            canvasElement.width = videoElement.clientWidth;
+            canvasElement.height = videoElement.clientHeight;
+        });
+
+        async function performInference(buffer) {
+            if (!buffer || buffer.length < 10) return;
+            const start = Date.now();
+            try {
+                const response = await fetch('/predict_live', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ landmarks: buffer })
+                });
+                const data = await response.json();
+                valLatency.innerText = (Date.now() - start) + 'ms';
+                if (data.prediction && data.prediction !== 'No Detection') {
+                    valAccuracy.innerText = (data.confidence * 100).toFixed(1) + '%';
+                    
+                    // Recovered confidence threshold at 0.35 for better sensitivity
+                    if (data.confidence > 0.35) {
+                        const word = data.prediction;
+                        predictionText.innerText = `"${word}"`;
+                        
+                        // Update Sentence
+                        if (sentence.length === 0 || sentence[sentence.length - 1] !== word) {
+                            sentence.push(word);
+                            sentenceText.innerText = sentence.join(' ');
+                            
+                            if (autoSpeak.checked) {
+                                speak(word);
+                            }
+                        }
+                    } else {
+                        console.log("Ignored low confidence prediction:", data.prediction, data.confidence);
+                    }
+                }
+            } catch (e) { console.error("Inference Error:", e); }
+        }
+
+        function speak(text) {
+            if (!text) return;
+            const utter = new SpeechSynthesisUtterance(text);
+            utter.lang = 'en-US';
+            window.speechSynthesis.speak(utter);
+        }
+
+        speakBtn.addEventListener('click', () => {
+            const word = predictionText.innerText.replace(/"/g, '').trim();
+            if (word && word !== "Waiting for sign...") {
+                speak(word);
+            }
+        });
+
+        // History Management
+        function saveSession() {
+            if (sentence.length === 0) return;
+            
+            const history = JSON.parse(localStorage.getItem('isl_history') || '[]');
+            const newEntry = {
+                id: Date.now(),
+                timestamp: new Date().toLocaleString(),
+                text: sentence.join(' '),
+                accuracy: valAccuracy.innerText
+            };
+            
+            history.unshift(newEntry);
+            localStorage.setItem('isl_history', JSON.stringify(history));
+            loadHistory();
+            alert("Session saved to history!");
+        }
+
+        function loadHistory() {
+            const history = JSON.parse(localStorage.getItem('isl_history') || '[]');
+            historyContainer.innerHTML = '';
+            
+            if (history.length === 0) {
+                historyContainer.innerHTML = `
+                    <div class="text-center py-12 text-on-surface-variant/50 uppercase tracking-widest text-xs">
+                        No history records found
+                    </div>`;
+                return;
+            }
+
+            history.forEach(item => {
+                const card = document.createElement('div');
+                card.className = "bg-white dark:bg-[#201F1F] hover:shadow-md transition-all rounded border border-outline-variant/30 dark:border-white/5 p-8 flex flex-col lg:flex-row items-center gap-8";
+                card.innerHTML = `
+                    <div class="flex items-center gap-6 lg:w-1/4">
+                        <div class="w-16 h-16 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/20 rounded flex items-center justify-center">
+                            <span class="material-symbols-outlined text-primary dark:text-[#ADC7FF] text-3xl">history_edu</span>
+                        </div>
+                        <div>
+                            <div class="text-on-surface dark:text-white font-bold uppercase truncate max-w-[150px]">${item.text.split(' ')[0]}...</div>
+                            <div class="text-[10px] text-primary dark:text-[#ADC7FF] uppercase tracking-widest font-bold mt-1">Translation Session</div>
+                        </div>
+                    </div>
+                    <div class="lg:w-1/6">
+                        <div class="text-xs text-on-surface dark:text-white font-semibold uppercase">${item.timestamp.split(',')[0]}</div>
+                        <div class="text-[10px] text-on-surface-variant dark:text-[#C4C6CE] font-bold mt-1">${item.timestamp.split(',')[1]}</div>
+                    </div>
+                    <p class="text-sm text-on-surface-variant dark:text-[#C4C6CE] italic flex-grow">
+                        "${item.text}"
+                    </p>
+                    <div class="flex gap-4 lg:w-1/5 justify-end items-center">
+                        <button onclick="speak('${item.text}')" class="p-2 text-on-surface-variant hover:text-primary transition-colors" title="Speak"><span class="material-symbols-outlined">volume_up</span></button>
+                        <button onclick="exportEntryPDF('${item.id}')" class="p-2 text-on-surface-variant hover:text-green-600 transition-colors" title="Download PDF"><span class="material-symbols-outlined">picture_as_pdf</span></button>
+                        <button onclick="deleteEntry(${item.id})" class="p-2 text-on-surface-variant hover:text-red-500 transition-colors" title="Delete"><span class="material-symbols-outlined">delete</span></button>
+                    </div>
+                `;
+                historyContainer.appendChild(card);
+            });
+        }
+
+        function deleteEntry(id) {
+            let history = JSON.parse(localStorage.getItem('isl_history') || '[]');
+            history = history.filter(item => item.id !== id);
+            localStorage.setItem('isl_history', JSON.stringify(history));
+            loadHistory();
+        }
+
+        // Individual PDF Export
+        function exportEntryPDF(id) {
+            const history = JSON.parse(localStorage.getItem('isl_history') || '[]');
+            const item = history.find(h => h.id == id);
+            if (!item) return;
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            // Header
+            doc.setFontSize(22);
+            doc.setTextColor(0, 51, 102);
+            doc.setFont("helvetica", "bold");
+            doc.text("ISL PORTAL | SESSION REPORT", 20, 25);
+            
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(100);
+            doc.text(`Reference ID: ${item.id}`, 20, 35);
+            doc.line(20, 40, 190, 40);
+
+            // Entry Details
+            let y = 55;
+            doc.setFontSize(12);
+            doc.setTextColor(80);
+            doc.setFont("helvetica", "bold");
+            doc.text("Date & Time:", 25, y);
+            doc.setFont("helvetica", "normal");
+            doc.text(item.timestamp, 60, y);
+            y += 10;
+
+            doc.setFont("helvetica", "bold");
+            doc.text("Avg. Accuracy:", 25, y);
+            doc.setFont("helvetica", "normal");
+            doc.text(item.accuracy, 60, y);
+            y += 15;
+
+            doc.setFont("helvetica", "bold");
+            doc.text("Full Transcript:", 25, y);
+            y += 10;
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(0);
+            const splitText = doc.splitTextToSize(item.text, 160);
+            doc.text(splitText, 30, y);
+
+            doc.save(`ISL_Session_${item.id}.pdf`);
+        }
+
+        // PDF Export
+        async function exportPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const history = JSON.parse(localStorage.getItem('isl_history') || '[]');
+
+            if (history.length === 0) {
+                alert("No history to export!");
+                return;
+            }
+
+            // Header
+            doc.setFontSize(22);
+            doc.setTextColor(0, 51, 102);
+            doc.setFont("helvetica", "bold");
+            doc.text("ISL PORTAL | COMMUNICATION LOG", 20, 25);
+            
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(100);
+            doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, 35);
+            doc.line(20, 40, 190, 40);
+
+            // Vertical Block Layout
+            let y = 50;
+            const margin = 20;
+            const pageHeight = doc.internal.pageSize.height;
+
+            history.forEach((item, index) => {
+                // Check for page break
+                const estimateHeight = 40; // Approx height for an entry
+                if (y + estimateHeight > pageHeight - margin) {
+                    doc.addPage();
+                    y = 25;
+                }
+
+                // Entry Label (Session ID)
+                doc.setFontSize(12);
+                doc.setTextColor(0, 51, 102);
+                doc.setFont("helvetica", "bold");
+                doc.text(`SESSION ENTRY #${history.length - index}`, margin, y);
+                y += 8;
+
+                // Entry Details
+                doc.setFontSize(10);
+                doc.setFont("helvetica", "bold");
+                doc.setTextColor(80);
+                doc.text("Date & Time:", margin + 5, y);
+                doc.setFont("helvetica", "normal");
+                doc.text(item.timestamp, margin + 40, y);
+                y += 6;
+
+                doc.setFont("helvetica", "bold");
+                doc.text("Avg. Accuracy:", margin + 5, y);
+                doc.setFont("helvetica", "normal");
+                doc.text(item.accuracy, margin + 40, y);
+                y += 8;
+
+                // Transcript (Multi-line support)
+                doc.setFont("helvetica", "bold");
+                doc.text("Transcript:", margin + 5, y);
+                y += 6;
+                doc.setFont("helvetica", "normal");
+                doc.setTextColor(0);
+                const splitText = doc.splitTextToSize(item.text, 160);
+                doc.text(splitText, margin + 10, y);
+                
+                y += (splitText.length * 5) + 12;
+
+                // Separator line
+                doc.setDrawColor(220);
+                doc.line(margin, y - 8, 190, y - 8);
+                y += 5;
+            });
+
+            doc.save(`ISL_History_Log_${new Date().getTime()}.pdf`);
+        }
+
+        saveBtn.addEventListener('click', saveSession);
+        exportPdfBtn.addEventListener('click', exportPDF);
+        
+        // Init
+        document.addEventListener('DOMContentLoaded', loadHistory);
+
+        clearBtn.addEventListener('click', () => {
+            predictionText.innerText = "Waiting for sign...";
+            sentenceText.innerText = "The transcript will appear here as you sign...";
+            sentence = [];
+            landmarkBuffer = [];
+            valAccuracy.innerText = "0%";
+            valLatency.innerText = "0ms";
+        });
+
+        camToggle.addEventListener('click', () => {
+            isTranslating = !isTranslating;
+            camToggle.querySelector('span').innerText = isTranslating ? 'videocam' : 'videocam_off';
+        });
+
+        window.addEventListener('resize', () => {
+            canvasElement.width = videoElement.clientWidth;
+            canvasElement.height = videoElement.clientHeight;
+        });
+    </script>
+</body>
+</html>

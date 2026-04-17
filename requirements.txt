@@ -1,0 +1,11 @@
+flask
+torch --index-url https://download.pytorch.org/whl/cpu
+transformers
+timm
+mediapipe
+tqdm
+scikit-learn
+xgboost
+pandas
+opencv-python-headless
+numpy
