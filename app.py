@@ -216,8 +216,15 @@ def predict(video_path):
 def index():
     return render_template('index.html')
 
+def lazy_load_model():
+    global model
+    if model is None:
+        print("Lazy loading model...")
+        load_model()
+
 @app.route('/predict_live', methods=['POST'])
 def handle_predict_live():
+    lazy_load_model()
     global model, label_map
     data = request.json
     if not data or 'landmarks' not in data:
@@ -259,6 +266,7 @@ def handle_predict_live():
 
 @app.route('/predict', methods=['POST'])
 def handle_predict():
+    lazy_load_model()
     if 'video' not in request.files:
         return jsonify({'error': 'No video file provided'}), 400
     
@@ -279,10 +287,9 @@ def handle_predict():
         shutil.rmtree(temp_dir)
         return jsonify({'error': str(e)}), 500
 
-# Load model on startup
-load_model()
-
 if __name__ == '__main__':
+    # For local development, load the model immediately
+    load_model()
     # Use the port assigned by the environment (Render) or default to 5000 for local dev
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
