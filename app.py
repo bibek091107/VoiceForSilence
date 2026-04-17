@@ -216,6 +216,14 @@ def predict(video_path):
 def index():
     return render_template('index.html')
 
+@app.route('/health')
+def health():
+    global model
+    return jsonify({
+        'status': 'ready' if model is not None else 'loading',
+        'device': str(device)
+    })
+
 def lazy_load_model():
     global model
     if model is None:

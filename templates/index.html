@@ -53,6 +53,10 @@
 
         .nav-active { color: #003366 !important; border-bottom: 2px solid #003366; font-weight: 700 !important; }
         .dark .nav-active { color: #ADC7FF !important; border-bottom: 2px solid #ADC7FF; }
+
+        .stat-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,0.05); }
+        .stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #64748B; }
+        .stat-value { font-size: 12px; font-weight: 700; color: #003366; }
     </style>
 </head>
 <body class="selection:bg-primary/30 min-h-screen flex flex-col">
@@ -91,16 +95,27 @@
         <!-- TRANSLATE VIEW -->
         <div id="translateView">
             <section class="relative aspect-video w-full rounded-xl overflow-hidden bg-black shadow-2xl border border-outline-variant/15 dark:border-white/5 group">
-                <video id="inputVideo" class="w-full h-full object-cover scale-x-[-1]"></video>
+                <video id="inputVideo" class="w-full h-full object-cover scale-x-[-1]" autoplay muted playsinline></video>
                 <canvas id="outputCanvas" class="absolute inset-0 w-full h-full scale-x-[-1]"></canvas>
 
                 <!-- Overlay Interface -->
                 <div class="absolute inset-0 flex flex-col justify-between p-6 pointer-events-none">
                     <div class="flex justify-between items-start">
-                        <div class="flex items-center gap-3 bg-white/80 dark:bg-black/60 px-4 py-2 rounded-full glass-panel pointer-events-auto border border-outline-variant/10 dark:border-white/10">
-                            <span class="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse"></span>
-                            <span class="text-xs font-bold tracking-wider text-on-surface dark:text-white uppercase">Live Translation</span>
+                        <!-- Left: Live indicator + Sensing Badge -->
+                        <div class="flex items-center gap-3">
+                            <div class="flex items-center gap-3 bg-white/80 dark:bg-black/60 px-4 py-2 rounded-full glass-panel pointer-events-auto border border-outline-variant/10 dark:border-white/10">
+                                <span class="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse"></span>
+                                <span class="text-xs font-bold tracking-wider text-on-surface dark:text-white uppercase">Live Translation</span>
+                            </div>
+                            <div id="sensingBadge" class="hidden items-center gap-2 bg-green-500/90 text-white px-3 py-2 rounded-full border border-green-400/30">
+                                <span class="relative flex h-2 w-2">
+                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                                    <span class="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                                </span>
+                                <span class="text-[10px] font-black uppercase tracking-widest">Sensing...</span>
+                            </div>
                         </div>
+                        <!-- Right: Latency & Accuracy -->
                         <div class="flex gap-4">
                             <div class="flex flex-col items-end bg-white/80 dark:bg-black/60 px-4 py-2 rounded-xl glass-panel pointer-events-auto border border-outline-variant/10 dark:border-white/10">
                                 <span class="text-[10px] text-on-surface-variant dark:text-white/60 uppercase font-bold tracking-widest">Latency</span>
@@ -195,7 +210,11 @@
                             <span class="material-symbols-outlined text-on-surface-variant dark:text-[#C4C6CE] text-sm">analytics</span>
                             <span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant dark:text-[#C4C6CE]">Model Health</span>
                         </div>
-                        <div class="space-y-3">
+                        <div class="stat-item">
+                            <span class="stat-label">STATUS</span>
+                            <span class="stat-value" id="valStatus" style="color: #ff4757;">LOADING...</span>
+                        </div>
+                        <div class="space-y-3 mt-3">
                             <div class="flex justify-between items-center">
                                 <span class="text-xs text-on-surface-variant/80 dark:text-[#C4C6CE]/80">Engine Load</span>
                                 <div class="w-24 h-1 bg-surface-variant dark:bg-[#353534] rounded-full overflow-hidden">
@@ -300,6 +319,8 @@
         const sentenceText = document.getElementById('sentenceText');
         const valAccuracy = document.getElementById('valAccuracy');
         const valLatency = document.getElementById('valLatency');
+        const valStatus = document.getElementById('valStatus');
+        const sensingBadge = document.getElementById('sensingBadge');
         const speakBtn = document.getElementById('speakBtn');
         const autoSpeak = document.getElementById('autoSpeak');
         const clearBtn = document.getElementById('clearBtn');
@@ -310,18 +331,33 @@
         const historyContainer = document.getElementById('historyContainer');
 
         let sentence = [];
-
         let isTranslating = true;
         let landmarkBuffer = [];
         const MAX_BUFFER_SIZE = 169;
         let lastInferenceTime = Date.now();
         let framesWithoutHands = 0;
 
+        // Poll backend to check if model is ready
+        async function checkModelStatus() {
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                if (data.status === 'ready') {
+                    valStatus.innerText = 'READY';
+                    valStatus.style.color = '#2ed573';
+                } else {
+                    setTimeout(checkModelStatus, 5000);
+                }
+            } catch (e) {
+                setTimeout(checkModelStatus, 5000);
+            }
+        }
+        checkModelStatus();
+
         function onResults(results) {
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             
-            // Draw skeleton with refined aesthetics
             if (results.poseLandmarks) {
                 drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: 'rgba(255,255,255,0.15)', lineWidth: 1});
             }
@@ -345,9 +381,13 @@
                 };
 
                 if (hasHand) {
+                    sensingBadge.classList.remove('hidden');
+                    sensingBadge.style.display = 'flex';
                     framesWithoutHands = 0;
                     landmarkBuffer.push(frameData);
                 } else {
+                    sensingBadge.classList.add('hidden');
+                    sensingBadge.style.display = 'none';
                     framesWithoutHands++;
                     if (framesWithoutHands < 15) {
                         landmarkBuffer.push(frameData);
@@ -356,17 +396,14 @@
 
                 if (landmarkBuffer.length > MAX_BUFFER_SIZE) landmarkBuffer.shift();
 
-                // Adaptive inference timing
                 if (framesWithoutHands === 15 && landmarkBuffer.length > 25) {
-                    // Optimized Trim (last 5 frames)
                     const gestureBuffer = landmarkBuffer.slice(0, -5);
                     if (gestureBuffer.length > 10) {
                         performInference(gestureBuffer);
                     }
                     lastInferenceTime = Date.now();
-                    landmarkBuffer = []; // CLEAR BUFFER completely to prevent noise leakage
+                    landmarkBuffer = [];
                 } else if (hasHand && Date.now() - lastInferenceTime > 2000 && landmarkBuffer.length > 60) {
-                    // Continuous safety: translate and clear if signing for too long
                     performInference(landmarkBuffer);
                     lastInferenceTime = Date.now();
                     landmarkBuffer = [];
@@ -401,23 +438,16 @@
                 valLatency.innerText = (Date.now() - start) + 'ms';
                 if (data.prediction && data.prediction !== 'No Detection') {
                     valAccuracy.innerText = (data.confidence * 100).toFixed(1) + '%';
-                    
-                    // Recovered confidence threshold at 0.35 for better sensitivity
                     if (data.confidence > 0.35) {
                         const word = data.prediction;
                         predictionText.innerText = `"${word}"`;
-                        
-                        // Update Sentence
                         if (sentence.length === 0 || sentence[sentence.length - 1] !== word) {
                             sentence.push(word);
                             sentenceText.innerText = sentence.join(' ');
-                            
                             if (autoSpeak.checked) {
                                 speak(word);
                             }
                         }
-                    } else {
-                        console.log("Ignored low confidence prediction:", data.prediction, data.confidence);
                     }
                 }
             } catch (e) { console.error("Inference Error:", e); }
@@ -440,7 +470,6 @@
         // History Management
         function saveSession() {
             if (sentence.length === 0) return;
-            
             const history = JSON.parse(localStorage.getItem('isl_history') || '[]');
             const newEntry = {
                 id: Date.now(),
@@ -448,7 +477,6 @@
                 text: sentence.join(' '),
                 accuracy: valAccuracy.innerText
             };
-            
             history.unshift(newEntry);
             localStorage.setItem('isl_history', JSON.stringify(history));
             loadHistory();
@@ -458,15 +486,10 @@
         function loadHistory() {
             const history = JSON.parse(localStorage.getItem('isl_history') || '[]');
             historyContainer.innerHTML = '';
-            
             if (history.length === 0) {
-                historyContainer.innerHTML = `
-                    <div class="text-center py-12 text-on-surface-variant/50 uppercase tracking-widest text-xs">
-                        No history records found
-                    </div>`;
+                historyContainer.innerHTML = `<div class="text-center py-12 text-on-surface-variant/50 uppercase tracking-widest text-xs">No history records found</div>`;
                 return;
             }
-
             history.forEach(item => {
                 const card = document.createElement('div');
                 card.className = "bg-white dark:bg-[#201F1F] hover:shadow-md transition-all rounded border border-outline-variant/30 dark:border-white/5 p-8 flex flex-col lg:flex-row items-center gap-8";
@@ -484,13 +507,11 @@
                         <div class="text-xs text-on-surface dark:text-white font-semibold uppercase">${item.timestamp.split(',')[0]}</div>
                         <div class="text-[10px] text-on-surface-variant dark:text-[#C4C6CE] font-bold mt-1">${item.timestamp.split(',')[1]}</div>
                     </div>
-                    <p class="text-sm text-on-surface-variant dark:text-[#C4C6CE] italic flex-grow">
-                        "${item.text}"
-                    </p>
+                    <p class="text-sm text-on-surface-variant dark:text-[#C4C6CE] italic flex-grow">"${item.text}"</p>
                     <div class="flex gap-4 lg:w-1/5 justify-end items-center">
-                        <button onclick="speak('${item.text}')" class="p-2 text-on-surface-variant hover:text-primary transition-colors" title="Speak"><span class="material-symbols-outlined">volume_up</span></button>
-                        <button onclick="exportEntryPDF('${item.id}')" class="p-2 text-on-surface-variant hover:text-green-600 transition-colors" title="Download PDF"><span class="material-symbols-outlined">picture_as_pdf</span></button>
-                        <button onclick="deleteEntry(${item.id})" class="p-2 text-on-surface-variant hover:text-red-500 transition-colors" title="Delete"><span class="material-symbols-outlined">delete</span></button>
+                        <button onclick="speak('${item.text}')" class="p-2 text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">volume_up</span></button>
+                        <button onclick="exportEntryPDF('${item.id}')" class="p-2 text-on-surface-variant hover:text-green-600 transition-colors"><span class="material-symbols-outlined">picture_as_pdf</span></button>
+                        <button onclick="deleteEntry(${item.id})" class="p-2 text-on-surface-variant hover:text-red-500 transition-colors"><span class="material-symbols-outlined">delete</span></button>
                     </div>
                 `;
                 historyContainer.appendChild(card);
@@ -504,136 +525,65 @@
             loadHistory();
         }
 
-        // Individual PDF Export
         function exportEntryPDF(id) {
             const history = JSON.parse(localStorage.getItem('isl_history') || '[]');
             const item = history.find(h => h.id == id);
             if (!item) return;
-
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
-
-            // Header
             doc.setFontSize(22);
             doc.setTextColor(0, 51, 102);
             doc.setFont("helvetica", "bold");
             doc.text("ISL PORTAL | SESSION REPORT", 20, 25);
-            
             doc.setFontSize(10);
             doc.setFont("helvetica", "normal");
             doc.setTextColor(100);
             doc.text(`Reference ID: ${item.id}`, 20, 35);
             doc.line(20, 40, 190, 40);
-
-            // Entry Details
             let y = 55;
-            doc.setFontSize(12);
-            doc.setTextColor(80);
-            doc.setFont("helvetica", "bold");
-            doc.text("Date & Time:", 25, y);
-            doc.setFont("helvetica", "normal");
-            doc.text(item.timestamp, 60, y);
-            y += 10;
-
-            doc.setFont("helvetica", "bold");
-            doc.text("Avg. Accuracy:", 25, y);
-            doc.setFont("helvetica", "normal");
-            doc.text(item.accuracy, 60, y);
-            y += 15;
-
-            doc.setFont("helvetica", "bold");
-            doc.text("Full Transcript:", 25, y);
-            y += 10;
-            doc.setFont("helvetica", "normal");
-            doc.setTextColor(0);
+            doc.setFontSize(12); doc.setTextColor(80); doc.setFont("helvetica", "bold");
+            doc.text("Date & Time:", 25, y); doc.setFont("helvetica", "normal"); doc.text(item.timestamp, 60, y); y += 10;
+            doc.setFont("helvetica", "bold"); doc.text("Avg. Accuracy:", 25, y); doc.setFont("helvetica", "normal"); doc.text(item.accuracy, 60, y); y += 15;
+            doc.setFont("helvetica", "bold"); doc.text("Full Transcript:", 25, y); y += 10;
+            doc.setFont("helvetica", "normal"); doc.setTextColor(0);
             const splitText = doc.splitTextToSize(item.text, 160);
             doc.text(splitText, 30, y);
-
             doc.save(`ISL_Session_${item.id}.pdf`);
         }
 
-        // PDF Export
         async function exportPDF() {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
             const history = JSON.parse(localStorage.getItem('isl_history') || '[]');
-
-            if (history.length === 0) {
-                alert("No history to export!");
-                return;
-            }
-
-            // Header
-            doc.setFontSize(22);
-            doc.setTextColor(0, 51, 102);
-            doc.setFont("helvetica", "bold");
+            if (history.length === 0) { alert("No history to export!"); return; }
+            doc.setFontSize(22); doc.setTextColor(0, 51, 102); doc.setFont("helvetica", "bold");
             doc.text("ISL PORTAL | COMMUNICATION LOG", 20, 25);
-            
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "normal");
-            doc.setTextColor(100);
+            doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.setTextColor(100);
             doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, 35);
             doc.line(20, 40, 190, 40);
-
-            // Vertical Block Layout
             let y = 50;
             const margin = 20;
             const pageHeight = doc.internal.pageSize.height;
-
             history.forEach((item, index) => {
-                // Check for page break
-                const estimateHeight = 40; // Approx height for an entry
-                if (y + estimateHeight > pageHeight - margin) {
-                    doc.addPage();
-                    y = 25;
-                }
-
-                // Entry Label (Session ID)
-                doc.setFontSize(12);
-                doc.setTextColor(0, 51, 102);
-                doc.setFont("helvetica", "bold");
-                doc.text(`SESSION ENTRY #${history.length - index}`, margin, y);
-                y += 8;
-
-                // Entry Details
-                doc.setFontSize(10);
-                doc.setFont("helvetica", "bold");
-                doc.setTextColor(80);
-                doc.text("Date & Time:", margin + 5, y);
-                doc.setFont("helvetica", "normal");
-                doc.text(item.timestamp, margin + 40, y);
-                y += 6;
-
-                doc.setFont("helvetica", "bold");
-                doc.text("Avg. Accuracy:", margin + 5, y);
-                doc.setFont("helvetica", "normal");
-                doc.text(item.accuracy, margin + 40, y);
-                y += 8;
-
-                // Transcript (Multi-line support)
-                doc.setFont("helvetica", "bold");
-                doc.text("Transcript:", margin + 5, y);
-                y += 6;
-                doc.setFont("helvetica", "normal");
-                doc.setTextColor(0);
+                if (y + 40 > pageHeight - margin) { doc.addPage(); y = 25; }
+                doc.setFontSize(12); doc.setTextColor(0, 51, 102); doc.setFont("helvetica", "bold");
+                doc.text(`SESSION ENTRY #${history.length - index}`, margin, y); y += 8;
+                doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(80);
+                doc.text("Date & Time:", margin + 5, y); doc.setFont("helvetica", "normal"); doc.text(item.timestamp, margin + 40, y); y += 6;
+                doc.setFont("helvetica", "bold"); doc.text("Avg. Accuracy:", margin + 5, y); doc.setFont("helvetica", "normal"); doc.text(item.accuracy, margin + 40, y); y += 8;
+                doc.setFont("helvetica", "bold"); doc.text("Transcript:", margin + 5, y); y += 6;
+                doc.setFont("helvetica", "normal"); doc.setTextColor(0);
                 const splitText = doc.splitTextToSize(item.text, 160);
                 doc.text(splitText, margin + 10, y);
-                
                 y += (splitText.length * 5) + 12;
-
-                // Separator line
-                doc.setDrawColor(220);
-                doc.line(margin, y - 8, 190, y - 8);
-                y += 5;
+                doc.setDrawColor(220); doc.line(margin, y - 8, 190, y - 8); y += 5;
             });
-
             doc.save(`ISL_History_Log_${new Date().getTime()}.pdf`);
         }
 
         saveBtn.addEventListener('click', saveSession);
         exportPdfBtn.addEventListener('click', exportPDF);
         
-        // Init
         document.addEventListener('DOMContentLoaded', loadHistory);
 
         clearBtn.addEventListener('click', () => {
