@@ -279,6 +279,10 @@ def handle_predict():
         shutil.rmtree(temp_dir)
         return jsonify({'error': str(e)}), 500
 
+# Load model on startup
+load_model()
+
 if __name__ == '__main__':
-    load_model()
-    app.run(debug=True, port=5000)
+    # Use the port assigned by the environment (Render) or default to 5000 for local dev
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
